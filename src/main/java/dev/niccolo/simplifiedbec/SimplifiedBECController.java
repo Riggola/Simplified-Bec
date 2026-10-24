@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
@@ -28,10 +29,20 @@ import net.minecraft.nbt.NBTTagList;
 import net.minecraft.nbt.NBTTagString;
 import net.minecraftforge.common.util.ForgeDirection;
 
+import com.cleanroommc.modularui.api.drawable.IKey;
+import com.cleanroommc.modularui.api.widget.IWidget;
+import com.cleanroommc.modularui.value.sync.IntSyncValue;
+import com.cleanroommc.modularui.value.sync.PanelSyncManager;
+import com.cleanroommc.modularui.widgets.layout.Flow;
 import com.gtnewhorizon.structurelib.alignment.constructable.ISurvivalConstructable;
 import com.gtnewhorizon.structurelib.structure.IStructureDefinition;
 import com.gtnewhorizon.structurelib.structure.ISurvivalBuildEnvironment;
 import com.gtnewhorizon.structurelib.structure.StructureDefinition;
+import com.gtnewhorizons.modularui.api.math.Alignment;
+import com.gtnewhorizons.modularui.common.widget.DynamicPositionedColumn;
+import com.gtnewhorizons.modularui.common.widget.FakeSyncWidget;
+import com.gtnewhorizons.modularui.common.widget.SlotWidget;
+import com.gtnewhorizons.modularui.common.widget.TextWidget;
 
 import gregtech.api.enums.ItemList;
 import gregtech.api.enums.NaniteTier;
@@ -53,6 +64,7 @@ import gregtech.api.util.IGTHatchAdder;
 import gregtech.api.util.MultiblockTooltipBuilder;
 import gregtech.api.util.OverclockCalculator;
 import gregtech.api.util.shutdown.ShutDownReason;
+import gregtech.common.gui.modularui.multiblock.base.MTEMultiBlockBaseGui;
 import tectech.thing.metaTileEntity.multi.bec.MTEBECAssembler;
 import tectech.thing.metaTileEntity.multi.structures.BECStructureDefinitions;
 
@@ -77,6 +89,8 @@ public final class SimplifiedBECController extends MTEExtendedPowerMultiBlockBas
     private NaniteTier[] requiredNanites = {};
     private long naniteSubticks;
     private int parallelRecipesInProgress;
+    /** Server-calculated real-time speed, synced to the client GUI at 0.01x precision. */
+    private int naniteSpeedHundredths;
 
     private static final IStructureDefinition<SimplifiedBECController> STRUCTURE = StructureDefinition
         .<SimplifiedBECController>builder()
@@ -189,6 +203,7 @@ public final class SimplifiedBECController extends MTEExtendedPowerMultiBlockBas
 
     @Override
     protected void incrementProgressTime() {
+        naniteSpeedHundredths = 0;
         if (parallelRecipesInProgress <= 0 || requiredNanites.length == 0) return;
 
         // Original MTEBECAssembler: total all installed, valid containment
@@ -215,6 +230,9 @@ public final class SimplifiedBECController extends MTEExtendedPowerMultiBlockBas
         }
         NaniteTier requiredTier = requiredNanites[currentStep];
         if (requiredTier == null || providedTier.tier < requiredTier.tier) return;
+
+        // Actual effective progress per game tick, not the unscaled NEI/GT recipe duration.
+        naniteSpeedHundredths = (int) Math.round(100.0 * naniteCount / parallelRecipesInProgress);
 
         // Adapted BEC I/O Node nanite-progress calculation. Nanites below the
         // required tier still block the phase (checked above), but nanites
@@ -251,6 +269,7 @@ public final class SimplifiedBECController extends MTEExtendedPowerMultiBlockBas
     protected void outputAfterRecipe() {
         parallelRecipesInProgress = 0;
         naniteSubticks = 0;
+        naniteSpeedHundredths = 0;
         requiredNanites = new NaniteTier[0];
         super.outputAfterRecipe();
     }
@@ -259,6 +278,7 @@ public final class SimplifiedBECController extends MTEExtendedPowerMultiBlockBas
     public void stopMachine(ShutDownReason reason) {
         parallelRecipesInProgress = 0;
         naniteSubticks = 0;
+        naniteSpeedHundredths = 0;
         requiredNanites = new NaniteTier[0];
         super.stopMachine(reason);
     }
@@ -278,6 +298,7 @@ public final class SimplifiedBECController extends MTEExtendedPowerMultiBlockBas
     @Override
     public void loadNBTData(NBTTagCompound tag) {
         super.loadNBTData(tag);
+        naniteSpeedHundredths = 0;
         naniteSubticks = Math.max(0L, tag.getLong("simplifiedBecNaniteSubticks"));
         parallelRecipesInProgress = Math
             .max(0, Math.min(SimplifiedBECConfig.maxParallels, tag.getInteger("simplifiedBecActiveParallels")));
@@ -302,6 +323,59 @@ public final class SimplifiedBECController extends MTEExtendedPowerMultiBlockBas
     @Override
     public boolean supportsVoidProtection() {
         return true;
+    }
+
+    private String getNaniteSpeedText() {
+        return String.format(Locale.ROOT, "Nanite speed: %.2fx", naniteSpeedHundredths / 100.0);
+    }
+
+    @Override
+    protected MTEMultiBlockBaseGui<?> getGui() {
+        return new SimplifiedBECGui(this);
+    }
+
+    /** MUI2 (default in GTNH 2.9): show speed high in the terminal, synced from the server. */
+    private static final class SimplifiedBECGui extends MTEMultiBlockBaseGui<SimplifiedBECController> {
+
+        private SimplifiedBECGui(SimplifiedBECController controller) {
+            super(controller);
+        }
+
+        @Override
+        protected void registerSyncValues(PanelSyncManager syncManager) {
+            super.registerSyncValues(syncManager);
+            syncManager.syncValue(
+                "simplifiedBecNaniteSpeed",
+                new IntSyncValue(
+                    () -> multiblock.naniteSpeedHundredths,
+                    value -> multiblock.naniteSpeedHundredths = value));
+        }
+
+        @Override
+        protected IWidget createShutdownDurationWidget(PanelSyncManager syncManager) {
+            return Flow.column()
+                .fullWidth()
+                .child(
+                    IKey.dynamic(multiblock::getNaniteSpeedText)
+                        .asWidget()
+                        .fullWidth()
+                        .marginBottom(2)
+                        .setEnabledIf(widget -> multiblock.mMaxProgresstime > 0))
+                .child(super.createShutdownDurationWidget(syncManager));
+        }
+    }
+
+    /** MUI1 compatibility for packs that disable MUI2 globally. */
+    @Override
+    protected void drawTexts(DynamicPositionedColumn screenElements, SlotWidget inventorySlot) {
+        super.drawTexts(screenElements, inventorySlot);
+        screenElements.widget(
+            new FakeSyncWidget.IntegerSyncer(() -> naniteSpeedHundredths, value -> naniteSpeedHundredths = value));
+        screenElements.widget(
+            TextWidget.dynamicString(this::getNaniteSpeedText)
+                .setSynced(false)
+                .setTextAlignment(Alignment.CenterLeft)
+                .setEnabled(widget -> mMaxProgresstime > 0));
     }
 
     @Override

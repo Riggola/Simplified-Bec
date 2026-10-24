@@ -1,15 +1,21 @@
 package dev.niccolo.simplifiedbec;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
+import net.minecraft.item.ItemStack;
 import net.minecraftforge.fluids.FluidStack;
 
 import gregtech.api.enums.CondensateType;
+import gregtech.api.enums.NaniteTier;
 import gregtech.api.recipe.RecipeMap;
 import gregtech.api.recipe.RecipeMapBackend;
 import gregtech.api.recipe.RecipeMapBuilder;
+import gregtech.api.recipe.RecipeMetadataKey;
 import gregtech.api.util.GTRecipe;
+import gregtech.api.util.GTRecipeBuilder;
 import gregtech.api.util.GTRecipeConstants;
 import tectech.recipe.BECAssemblyFrontend;
 import tectech.recipe.TecTechRecipeMaps;
@@ -73,14 +79,16 @@ public final class SimplifiedBECRecipes {
                 continue;
             }
 
-            GTRecipe copy = source.copy();
-            copy.mFluidInputs = originals.toArray(new FluidStack[0]);
-            // Power is multiplied by the controller's ProcessingLogic, using long EU/t.
-            // Multiplication here would overflow GTRecipe's signed int on UXV recipes.
-            copy.mFakeRecipe = false;
-            copy.mHidden = false;
-
             try {
+                GTRecipe copy = copyWithMetadata(source, originals.toArray(new FluidStack[0]));
+                if (copy == null) {
+                    failed++;
+                    continue;
+                }
+                // Don't register a recipe that the controller will inevitably reject.
+                if (copy.getMetadata(GTRecipeConstants.NANITE_TIERS) == null) {
+                    throw new IllegalStateException("BEC recipe lost its nanite tier metadata");
+                }
                 if (RECIPES.add(copy) != null) added++;
                 else failed++;
             } catch (RuntimeException exception) {
@@ -96,5 +104,66 @@ public final class SimplifiedBECRecipes {
             failed,
             withoutCondensate,
             SimplifiedBECConfig.energyMultiplier);
+    }
+
+    /**
+     * GTRecipe.copy() deliberately resets metadata to EmptyRecipeMetadataStorage.
+     * BEC recipes require NANITE_TIERS, so using copy() silently makes every
+     * recipe fail the controller's validation even though it appears in NEI.
+     * Rebuild the recipe with GTRecipeBuilder to retain those metadata values.
+     */
+    private static GTRecipe copyWithMetadata(GTRecipe source, FluidStack[] sourceFluids) {
+        NaniteTier[] tiers = source.getMetadata(GTRecipeConstants.NANITE_TIERS);
+        if (tiers == null || tiers.length != source.mInputs.length) {
+            SimplifiedBECMod.LOG
+                .warn("Skipping BEC recipe without valid nanite tiers: {}", Arrays.toString(source.mOutputs));
+            return null;
+        }
+
+        GTRecipeBuilder builder = GTRecipeBuilder.builder()
+            .itemInputsUnified(copyItems(source.mInputs), source.mInputChances)
+            .itemOutputs(copyItems(source.mOutputs), source.mOutputChances)
+            .fluidInputs(sourceFluids, source.mFluidInputChances)
+            .fluidOutputs(copyFluids(source.mFluidOutputs), source.mFluidOutputChances)
+            .duration(source.mDuration)
+            .eut(source.mEUt)
+            .special(source.mSpecialItems)
+            .specialValue(source.mSpecialValue);
+
+        if (!source.mEnabled) builder.disabled();
+        if (source.mHidden) builder.hidden();
+        if (source.mFakeRecipe) builder.fake();
+        if (!source.mCanBeBuffered) builder.noBuffer();
+        if (source.mNeedsEmptyOutput) builder.needsEmptyOutput();
+        if (source.isNBTSensitive) builder.nbtSensitive();
+
+        for (Map.Entry<RecipeMetadataKey<?>, Object> metadata : source.getMetadataStorage()
+            .getEntries()) {
+            // Entangled fluid metadata belongs to the original BEC only; the
+            // simplified recipe consumes the converted source fluids directly.
+            if (metadata.getKey() == GTRecipeConstants.CONDENSATE_INPUT) continue;
+            restoreMetadata(builder, metadata.getKey(), metadata.getValue());
+        }
+
+        // No original BEC recipe category: register under the simplified map.
+        return builder.build()
+            .orElse(null);
+    }
+
+    private static <T> void restoreMetadata(GTRecipeBuilder builder, RecipeMetadataKey<T> key, Object value) {
+        builder.metadata(key, key.cast(value));
+    }
+
+    private static ItemStack[] copyItems(ItemStack[] stacks) {
+        return Arrays.stream(stacks)
+            .map(stack -> stack == null ? null : stack.copy())
+            .toArray(ItemStack[]::new);
+    }
+
+    private static FluidStack[] copyFluids(FluidStack[] stacks) {
+        return stacks == null ? new FluidStack[0]
+            : Arrays.stream(stacks)
+                .map(stack -> stack == null ? null : stack.copy())
+                .toArray(FluidStack[]::new);
     }
 }
