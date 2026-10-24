@@ -1,0 +1,3 @@
+tasks.named('jar', Jar) {
+    archiveFileName.set('SimplifiedBEC.jar')
+}

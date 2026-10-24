@@ -11,13 +11,25 @@ import gregtech.api.recipe.RecipeMapBackend;
 import gregtech.api.recipe.RecipeMapBuilder;
 import gregtech.api.util.GTRecipe;
 import gregtech.api.util.GTRecipeConstants;
+import tectech.recipe.BECAssemblyFrontend;
 import tectech.recipe.TecTechRecipeMaps;
+import tectech.thing.gui.TecTechUITextures;
 
 /** Translates already-registered BEC recipes without modifying the originals. */
 public final class SimplifiedBECRecipes {
 
     public static final RecipeMap<RecipeMapBackend> RECIPES = RecipeMapBuilder.of("gt.recipe.simplified-bec")
         .maxIO(16, 1, 4, 0)
+        // Match the original BEC assembler's 16-item / 4-fluid NEI layout.
+        // Do not use the original backend: it hides entangled fluid inputs in metadata.
+        .logo(TecTechUITextures.PICTURE_TECTECH_LOGO)
+        .logoSize(18, 18)
+        .logoPos(151, 63)
+        .neiRecipeBackgroundSize(170, 90)
+        .neiTransferRect(88, 8, 18, 72)
+        .neiTransferRect(124, 8, 18, 72)
+        .neiTransferRect(142, 26, 18, 18)
+        .frontend(BECAssemblyFrontend::new)
         .neiHandlerInfo(builder -> builder.setDisplayStack(SimplifiedBECMod.controller.getStackForm(1L)))
         .build();
 

@@ -8,6 +8,7 @@ public final class SimplifiedBECConfig {
 
     public static int controllerId = 32680;
     public static int energyMultiplier = 10;
+    public static int maxParallels = 30720;
 
     private SimplifiedBECConfig() {}
 
@@ -28,6 +29,13 @@ public final class SimplifiedBECConfig {
             1,
             100,
             "Multiplier applied to source BEC recipe EU/t. Default: 10.");
+        maxParallels = config.getInt(
+            "becMaxParallels",
+            Configuration.CATEGORY_GENERAL,
+            maxParallels,
+            1,
+            1000000,
+            "Maximum parallel recipes. Actual count also depends on available materials, output space and hatch EU/t.");
         if (config.hasChanged()) config.save();
     }
 }
