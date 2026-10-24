@@ -1,3 +1,21 @@
-tasks.named('jar', Jar) {
-    archiveFileName.set('SimplifiedBEC.jar')
+// RetroFuturaGradle creates two JARs:
+//   jar      -> development names (not playable in normal GTNH)
+//   reobfJar -> reobfuscated names (playable in normal GTNH)
+// Do not override jar.archiveFileName. That renames the development JAR and
+// makes it easy to accidentally install the wrong artifact.
+
+tasks.register('packagePlayableJar', Copy) {
+    group = 'build'
+    description = 'Copies the reobfuscated mod to build/release/SimplifiedBEC.jar'
+
+    // The input is solely the output of reobfJar, never the jar task.
+    dependsOn(tasks.named('reobfJar'))
+    from(tasks.named('reobfJar'))
+    include('*.jar')
+    into(layout.buildDirectory.dir('release'))
+    rename { 'SimplifiedBEC.jar' }
+}
+
+tasks.named('build') {
+    dependsOn(tasks.named('packagePlayableJar'))
 }
