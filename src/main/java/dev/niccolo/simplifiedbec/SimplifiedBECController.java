@@ -17,6 +17,7 @@ import static gregtech.api.enums.HatchElement.OutputBus;
 import static gregtech.api.enums.HatchElement.OutputHatch;
 import static gregtech.api.util.GTStructureUtility.buildHatchAdder;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -27,13 +28,14 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.nbt.NBTTagString;
+import net.minecraft.util.StatCollector;
 import net.minecraftforge.common.util.ForgeDirection;
 
 import com.cleanroommc.modularui.api.drawable.IKey;
 import com.cleanroommc.modularui.api.widget.IWidget;
 import com.cleanroommc.modularui.value.sync.IntSyncValue;
+import com.cleanroommc.modularui.value.sync.LongSyncValue;
 import com.cleanroommc.modularui.value.sync.PanelSyncManager;
-import com.cleanroommc.modularui.widgets.layout.Flow;
 import com.gtnewhorizon.structurelib.alignment.constructable.ISurvivalConstructable;
 import com.gtnewhorizon.structurelib.structure.IStructureDefinition;
 import com.gtnewhorizon.structurelib.structure.ISurvivalBuildEnvironment;
@@ -334,7 +336,7 @@ public final class SimplifiedBECController extends MTEExtendedPowerMultiBlockBas
         return new SimplifiedBECGui(this);
     }
 
-    /** MUI2 (default in GTNH 2.9): show speed high in the terminal, synced from the server. */
+    /** MUI2 (default in GTNH 2.9): one line, keeping GT's separate progress widget intact. */
     private static final class SimplifiedBECGui extends MTEMultiBlockBaseGui<SimplifiedBECController> {
 
         private SimplifiedBECGui(SimplifiedBECController controller) {
@@ -353,15 +355,24 @@ public final class SimplifiedBECController extends MTEExtendedPowerMultiBlockBas
 
         @Override
         protected IWidget createShutdownDurationWidget(PanelSyncManager syncManager) {
-            return Flow.column()
+            LongSyncValue shutdownDuration = (LongSyncValue) syncManager.getSyncHandlerFromMapKey("shutdownDuration:0");
+            return IKey.dynamic(() -> {
+                if (multiblock.mMaxProgresstime > 0) return multiblock.getNaniteSpeedText();
+
+                Duration time = Duration.ofSeconds(shutdownDuration.getValue());
+                return StatCollector.translateToLocalFormatted(
+                    "GT5U.gui.text.shutdown_duration",
+                    time.toHours(),
+                    time.toMinutes() % 60,
+                    time.getSeconds() % 60);
+            })
+                .asWidget()
                 .fullWidth()
-                .child(
-                    IKey.dynamic(multiblock::getNaniteSpeedText)
-                        .asWidget()
-                        .fullWidth()
-                        .marginBottom(2)
-                        .setEnabledIf(widget -> multiblock.mMaxProgresstime > 0))
-                .child(super.createShutdownDurationWidget(syncManager));
+                .marginBottom(2)
+                .setEnabledIf(
+                    widget -> multiblock.mMaxProgresstime > 0
+                        || (multiblock.shouldDisplayShutDownReason() && !baseMetaTileEntity.isActive()
+                            && !baseMetaTileEntity.isAllowedToWork()));
         }
     }
 
