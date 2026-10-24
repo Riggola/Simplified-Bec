@@ -24,12 +24,18 @@ public final class SimplifiedBECRecipes {
     private SimplifiedBECRecipes() {}
 
     public static void register() {
+        int sourceCount = 0;
         int added = 0;
         int failed = 0;
+        int withoutCondensate = 0;
 
         for (GTRecipe source : TecTechRecipeMaps.condensateAssemblingRecipes.getAllRecipes()) {
+            sourceCount++;
             FluidStack[] entangled = source.getMetadata(GTRecipeConstants.CONDENSATE_INPUT);
-            if (entangled == null || entangled.length == 0) continue;
+            if (entangled == null || entangled.length == 0) {
+                withoutCondensate++;
+                continue;
+            }
 
             List<FluidStack> originals = new ArrayList<>();
             boolean valid = true;
@@ -72,9 +78,11 @@ public final class SimplifiedBECRecipes {
         }
 
         SimplifiedBECMod.LOG.info(
-            "Simplified BEC recipes: {} registered, {} not convertible, {}x EU/t",
+            "Simplified BEC recipes: {} source, {} registered, {} not convertible, {} without condensate; {}x EU/t",
+            sourceCount,
             added,
             failed,
+            withoutCondensate,
             SimplifiedBECConfig.energyMultiplier);
     }
 }

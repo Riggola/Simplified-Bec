@@ -5,7 +5,6 @@ import org.apache.logging.log4j.Logger;
 
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
-import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.registry.GameRegistry;
 import gregtech.api.GregTechAPI;
@@ -38,11 +37,9 @@ public final class SimplifiedBECMod {
         controller = new SimplifiedBECController(id, "multimachine.simplifiedbec", "Simplified BEC Assembler");
         // Provisional, intentionally simple recipe: repurpose the original BEC I/O Node controller.
         GameRegistry.addShapelessRecipe(controller.getStackForm(1L), CustomItemList.Machine_Multi_BECIONode.get(1));
+        // GT5 registers additional BEC recipes during GTMod.onLoadComplete().
+        // Register after *that* phase, not in our FML postInit, to include them all.
+        GregTechAPI.sGTCompleteLoad.add(SimplifiedBECRecipes::register);
         LOG.info("Registered Simplified BEC controller as GregTech MTE {}", id);
-    }
-
-    @Mod.EventHandler
-    public void postInit(FMLPostInitializationEvent event) {
-        SimplifiedBECRecipes.register();
     }
 }
